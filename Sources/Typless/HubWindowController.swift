@@ -16,19 +16,24 @@ enum HubPage: String, CaseIterable, Identifiable {
 @MainActor
 final class HubWindowController: NSWindowController {
   init(coordinator: AppCoordinator) {
+    let window = Self.makeWindow(rootView: HubView(coordinator: coordinator,
+      preferences: coordinator.preferences, permissions: coordinator.permissionManager, store: coordinator.store))
+    super.init(window: window)
+  }
+
+  static func makeWindow<Content: View>(rootView: Content, autosaveName: String? = "TyplessHub") -> NSWindow {
     let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1040, height: 760),
       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
     window.title = "Typless"
-    window.titleVisibility = .hidden
-    window.titlebarAppearsTransparent = true
-    window.isMovableByWindowBackground = true
-    window.minSize = CGSize(width: 860, height: 640)
+    window.toolbarStyle = .unified
+    window.minSize = CGSize(width: 760, height: 600)
     window.isReleasedWhenClosed = false
-    window.setFrameAutosaveName("TyplessHub")
-    window.contentView = NSHostingView(rootView: HubView(coordinator: coordinator,
-      preferences: coordinator.preferences, permissions: coordinator.permissionManager, store: coordinator.store))
+    if let autosaveName { window.setFrameAutosaveName(autosaveName) }
+    let hosting = NSHostingController(rootView: rootView)
+    hosting.sceneBridgingOptions = .all
+    window.contentViewController = hosting
     window.center()
-    super.init(window: window)
+    return window
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
   func present() {
@@ -39,41 +44,35 @@ final class HubWindowController: NSWindowController {
 }
 
 private enum Palette {
-  static let blue = Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    ? NSColor(red: 0.52, green: 0.61, blue: 1, alpha: 1) : NSColor(red: 0.28, green: 0.38, blue: 0.91, alpha: 1) })
-  static let background = Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    ? NSColor(white: 0.105, alpha: 1) : NSColor(red: 0.975, green: 0.973, blue: 0.962, alpha: 1) })
-  static let sidebar = Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    ? NSColor(white: 0.135, alpha: 1) : NSColor(red: 0.95, green: 0.948, blue: 0.937, alpha: 1) })
-  static let card = Color(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    ? NSColor(white: 0.155, alpha: 1) : .white })
-  static let line = Color.primary.opacity(0.075)
+  static let blue = Color.accentColor
+  static let background = Color(nsColor: .textBackgroundColor)
+  static let line = Color(nsColor: .separatorColor)
 }
 
 private struct Card<Content: View>: View {
   @ViewBuilder var content: Content
   var body: some View {
-    content.padding(24).frame(maxWidth: .infinity, alignment: .leading)
-      .background(Palette.card, in: RoundedRectangle(cornerRadius: 18))
-      .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Palette.line))
+    GroupBox {
+      content.padding(8).frame(maxWidth: .infinity, alignment: .leading)
+    }
   }
 }
 
-private struct PrimaryButton: ButtonStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label.font(.system(size: 13, weight: .semibold))
-      .padding(.horizontal, 17).padding(.vertical, 11)
-      .foregroundStyle(.white).background(Palette.blue.opacity(configuration.isPressed ? 0.75 : 1), in: RoundedRectangle(cornerRadius: 10))
+private struct PrimaryButton: PrimitiveButtonStyle {
+  @ViewBuilder func makeBody(configuration: Configuration) -> some View {
+    if #available(macOS 26.0, *) {
+      Button(configuration).buttonStyle(.glassProminent)
+    } else {
+      Button(configuration).buttonStyle(.borderedProminent)
+    }
   }
 }
 
 private struct KeyCap: View {
   let text: String
   var body: some View {
-    Text(text).font(.system(size: 12, weight: .medium)).padding(.horizontal, 9).padding(.vertical, 5)
-      .background(Palette.card, in: RoundedRectangle(cornerRadius: 6))
-      .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.13)))
-      .shadow(color: .black.opacity(0.04), radius: 0, y: 2)
+    Text(text).font(.caption.monospaced()).padding(.horizontal, 8).padding(.vertical, 4)
+      .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
   }
 }
 
@@ -82,7 +81,6 @@ private struct HubView: View {
   @ObservedObject var preferences: AppPreferences
   @ObservedObject var permissions: PermissionManager
   @ObservedObject var store: DictationStore
-  @Environment(\.colorScheme) private var scheme
   @State private var search = ""
   @State private var newWord = ""
   @State private var showAddWord = false
@@ -93,25 +91,11 @@ private struct HubView: View {
   @State private var loginEnabled = false
 
   var body: some View {
-    HStack(spacing: 0) {
-      sidebar
-      ScrollView {
-        VStack(alignment: .leading, spacing: 24) {
-          switch coordinator.selectedPage {
-          case .home: home
-          case .history: history
-          case .dictionary: dictionary
-          case .settings: settings
-          }
-          if let error = store.errorMessage {
-            Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.callout)
-          }
-        }.padding(.horizontal, 38).padding(.top, 42).padding(.bottom, 32)
-          .frame(maxWidth: 1080, alignment: .leading).frame(maxWidth: .infinity)
-      }.background(Palette.background)
+    HubNavigationLayout(selection: $coordinator.selectedPage) {
+      detail
+    } actions: {
+      toolbar
     }
-    .font(.system(size: 13)).tint(Palette.blue)
-    .frame(minWidth: 860, minHeight: 610).ignoresSafeArea()
     .onChange(of: coordinator.selectedPage) { _, _ in search = "" }
     .onChange(of: preferences.appearance) { _, value in coordinator.selectAppearance(value) }
     .onAppear {
@@ -132,63 +116,60 @@ private struct HubView: View {
     } message: { Text("这会删除此设备上保存的全部转写文字。") }
   }
 
-  private var sidebar: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(spacing: 10) {
-        Image(systemName: "waveform").font(.system(size: 22, weight: .bold)).foregroundStyle(Palette.blue)
-        Text("Typless").font(.system(size: 22, weight: .semibold, design: .rounded))
-      }.padding(.horizontal, 14).padding(.top, 56).padding(.bottom, 28)
-      ForEach([HubPage.home, .history, .dictionary]) { page in navButton(page) }
-      Spacer()
-      VStack(alignment: .leading, spacing: 12) {
-        HStack(spacing: 6) {
-          Circle().fill(coordinator.isPaused ? Color.orange : Palette.blue).frame(width: 6, height: 6)
-          Text(coordinator.isPaused ? "已暂停" : "让表达自然发生").font(.system(size: 12, weight: .medium))
+  @ViewBuilder private var detail: some View {
+    switch coordinator.selectedPage {
+    case .settings:
+      settings
+    case .history:
+      pageContent { history }
+        .searchable(text: $search, placement: .toolbar, prompt: "搜索转写内容")
+    case .dictionary:
+      pageContent { dictionary }
+        .searchable(text: $search, placement: .toolbar, prompt: "搜索词语")
+    case .home:
+      pageContent { home }
+    }
+  }
+
+  private func pageContent<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 20) {
+        content()
+        if let error = store.errorMessage {
+          Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
         }
-        HStack(spacing: 6) { KeyCap(text: "fn"); Text("随时开始说话").foregroundStyle(.secondary).font(.system(size: 11)) }
-      }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.card.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
-        .padding(.bottom, 8)
-      navButton(.settings)
-      HStack {
-        Text("QWEN OMNI").font(.system(size: 9, weight: .semibold)).tracking(1.6).foregroundStyle(.tertiary)
-        Spacer()
-        Button { coordinator.setPaused(!coordinator.isPaused) } label: {
-          Image(systemName: coordinator.isPaused ? "play.circle" : "pause.circle").font(.system(size: 15)).foregroundStyle(.secondary)
-        }.buttonStyle(.plain).help(coordinator.isPaused ? "恢复监听" : "暂停监听")
-      }.padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 24)
-    }.padding(.horizontal, 14).frame(width: 184).background(Palette.sidebar)
-      .overlay(alignment: .trailing) { Rectangle().fill(Palette.line).frame(width: 1) }
+      }
+      .padding(24).frame(maxWidth: 960, alignment: .leading).frame(maxWidth: .infinity)
+    }
   }
 
-  private func navButton(_ page: HubPage) -> some View {
-    let selected = coordinator.selectedPage == page
-    return Button { coordinator.selectedPage = page } label: {
-      HStack(spacing: 11) {
-        Image(systemName: page.icon).font(.system(size: 15)).frame(width: 19)
-        Text(page.title).font(.system(size: 13, weight: selected ? .semibold : .regular))
-        Spacer()
-      }.foregroundStyle(selected ? Color.primary : .secondary)
-        .padding(.horizontal, 13).padding(.vertical, 12)
-        .background(selected ? Palette.card : .clear, in: RoundedRectangle(cornerRadius: 10))
-    }.buttonStyle(.plain)
-  }
-
-  private func heading(_ title: String, _ subtitle: String) -> some View {
-    VStack(alignment: .leading, spacing: 9) {
-      Text(title).font(.system(size: 32, weight: .semibold)).tracking(-0.7)
-      Text(subtitle).font(.system(size: 13)).foregroundStyle(.secondary)
+  @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+    if coordinator.selectedPage == .history {
+      ToolbarItem {
+        Menu("历史记录操作", systemImage: "ellipsis") {
+          Button("导出文字…", action: exportHistory)
+          Button("清空历史记录…", role: .destructive) { deleteAll = true }
+        }
+      }
+    }
+    if coordinator.selectedPage == .dictionary {
+      ToolbarItem {
+        Button("导入词语", systemImage: "square.and.arrow.down", action: importWords)
+      }
+      ToolbarItem {
+        Button("添加词语", systemImage: "plus") { showAddWord = true }
+      }
+    }
+    ToolbarItem(placement: .primaryAction) {
+      Button(coordinator.isPaused ? "恢复监听" : "暂停监听",
+        systemImage: coordinator.isPaused ? "play" : "pause") {
+        coordinator.setPaused(!coordinator.isPaused)
+      }
+      .help(coordinator.isPaused ? "恢复 Fn 语音输入" : "暂停 Fn 语音输入")
     }
   }
 
   @ViewBuilder private var home: some View {
-    HStack(alignment: .top) {
-      heading("说话，不要打字。", "把时间留给思考，让表达跟上你的想法。")
-      Spacer()
-      Label("Qwen", systemImage: "sparkle").font(.system(size: 11, weight: .medium))
-        .foregroundStyle(Palette.blue).padding(.horizontal, 11).padding(.vertical, 7)
-        .background(Palette.blue.opacity(0.09), in: Capsule()).padding(.top, 7)
-    }
     if !permissions.allGranted { permissionCard }
     if coordinator.fnSystemAction.needsAttention {
       Card {
@@ -208,28 +189,11 @@ private struct HubView: View {
     Card {
       VStack(alignment: .leading, spacing: 22) {
         HStack {
-          VStack(alignment: .leading, spacing: 6) {
-            Text("从一个想法开始").font(.system(size: 18, weight: .semibold))
-            Text("在任何输入框按下 Fn，自然地说，再按一下完成。")
-              .foregroundStyle(.secondary).font(.system(size: 12))
-          }
+          Label("语音输入", systemImage: "mic").font(.title2)
           Spacer()
           KeyCap(text: "fn")
         }
-        HStack(alignment: .center, spacing: 24) {
-          VStack(alignment: .leading, spacing: 12) {
-            Label("随心说，边想边说", systemImage: "waveform")
-            Label("自动整理重复与口头禅", systemImage: "sparkles")
-            Label("文字出现在原来的输入框", systemImage: "cursorarrow.rays")
-          }.font(.system(size: 12)).foregroundStyle(.secondary)
-          Spacer()
-          HStack(alignment: .center, spacing: 5) {
-            ForEach(Array([14, 25, 40, 56, 32, 65, 47, 25, 40, 18, 10].enumerated()), id: \.offset) { index, height in
-              Capsule().fill(Palette.blue.opacity(index % 3 == 0 ? 0.4 : 0.85)).frame(width: 6, height: CGFloat(height))
-            }
-          }.frame(width: 160, height: 90).background(Palette.blue.opacity(0.055), in: RoundedRectangle(cornerRadius: 18))
-        }
-        Divider().overlay(Palette.line)
+        Divider()
         HStack {
           Text("按一下 Fn 开始，再按一下完成；Esc 取消。")
             .font(.system(size: 11)).foregroundStyle(.tertiary)
@@ -256,7 +220,7 @@ private struct HubView: View {
       HStack(spacing: 14) {
         Image(systemName: "text.bubble").font(.system(size: 23)).foregroundStyle(.tertiary)
         VStack(alignment: .leading, spacing: 5) {
-          Text("你的下一段文字，从声音开始。")
+          Text("暂无转录")
           Text("完成第一次语音输入后，会在这里看到记录。")
             .font(.system(size: 12)).foregroundStyle(.secondary)
         }
@@ -294,13 +258,6 @@ private struct HubView: View {
   }
 
   @ViewBuilder private var history: some View {
-    HStack {
-      heading("历史记录", "每一次表达，都可以再次找到。")
-      Spacer()
-      Menu { Button("导出文字…", action: exportHistory); Button("清空历史记录…", role: .destructive) { deleteAll = true } }
-      label: { Image(systemName: "ellipsis").frame(width: 28, height: 28) }.menuStyle(.borderlessButton).frame(width: 34)
-    }
-    searchField("搜索转写内容")
     HStack {
       Label("全部口述", systemImage: "waveform").foregroundStyle(Palette.blue)
       Text("\(store.entries.count)").foregroundStyle(.secondary)
@@ -344,30 +301,21 @@ private struct HubView: View {
   }
 
   @ViewBuilder private var dictionary: some View {
-    HStack {
-      heading("你的词典", "人名、产品名、专业术语。让 Typless 更懂你的表达。")
-      Spacer()
-      Button { showAddWord = true } label: { Label("添加词语", systemImage: "plus") }.buttonStyle(PrimaryButton())
-    }
-    searchField("搜索词语")
-    HStack {
-      Text("全部词语 · \(store.words.count)").font(.system(size: 12, weight: .medium))
-      Spacer()
-      Button("导入 CSV…", action: importWords).buttonStyle(.plain).foregroundStyle(.secondary)
-    }
+    Text("全部词语 · \(store.words.count)").font(.headline)
     let words = store.words.filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
     if words.isEmpty {
-      emptyState(icon: "text.book.closed", title: search.isEmpty ? "让专有名词，被准确听见" : "没有匹配的词语", detail: "添加常用的人名与术语，Qwen 整理文字时会参考你的词典。")
+      emptyState(icon: "text.book.closed", title: search.isEmpty ? "让专有名词，被准确听见" : "没有匹配的词语", detail: "添加常用的人名与术语，智能整理时会参考你的词典。")
     } else {
       LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
         ForEach(words, id: \.self) { word in
-          HStack {
-            Text(word).lineLimit(2)
-            Spacer(minLength: 4)
-            Button { store.deleteWord(word) } label: { Image(systemName: "xmark").font(.system(size: 9)).foregroundStyle(.tertiary) }
-              .buttonStyle(.plain).help("移除 \(word)")
-          }.padding(.horizontal, 16).padding(.vertical, 13)
-            .background(Palette.card, in: Capsule()).overlay(Capsule().strokeBorder(Palette.line))
+          GroupBox {
+            HStack {
+              Text(word).lineLimit(2)
+              Spacer(minLength: 4)
+              Button("移除 \(word)", systemImage: "xmark") { store.deleteWord(word) }
+                .labelStyle(.iconOnly).buttonStyle(.borderless).help("移除 \(word)")
+            }.padding(4)
+          }
         }
       }
     }
@@ -390,107 +338,59 @@ private struct HubView: View {
     }.padding(30).frame(width: 430)
   }
 
-  @ViewBuilder private var settings: some View {
-    heading("设置", "让 Typless 适应你的工作方式。")
-    sectionLabel("键盘快捷键", icon: "keyboard")
-    Card {
-      VStack(spacing: 20) {
-        HStack {
-          rowTitle("语音输入", "在任何输入框中开始说话。")
-          Spacer()
+  private var settings: some View {
+    Form {
+      Section("录音键") {
+        LabeledContent {
           KeyCap(text: "fn")
+        } label: {
+          rowTitle("语音输入", "按一下开始，再按一下完成；Esc 取消。")
         }
-        Divider()
-        HStack {
-          rowTitle("Fn 系统动作", coordinator.fnSystemAction.detail)
-          Spacer()
+        LabeledContent {
           Button("键盘设置") { coordinator.openKeyboardSettings() }
-        }
-        Divider()
-        HStack {
-          rowTitle("操作方式", "松开 Fn 不会结束录音，Esc 随时取消。")
-          Spacer()
-          Text("按一下开始，再按一下完成")
-            .font(.system(size: 12)).foregroundStyle(.secondary)
+        } label: {
+          rowTitle("Fn 系统动作", coordinator.fnSystemAction.detail)
         }
       }
-    }
-    sectionLabel("文字与语言", icon: "textformat")
-    Card {
-      VStack(spacing: 20) {
-        HStack {
+      Section("文字与语言") {
+        Picker(selection: $preferences.writingMode) {
+          ForEach(WritingMode.allCases) { Text($0.title).tag($0) }
+        } label: {
           rowTitle("文字处理", preferences.writingMode.detail)
-          Spacer()
-          Picker("文字处理", selection: $preferences.writingMode) {
-            ForEach(WritingMode.allCases) { Text($0.title).tag($0) }
-          }.labelsHidden().frame(width: 140)
         }
-        Divider()
-        HStack {
+        Picker(selection: $preferences.recognitionLanguage) {
+          ForEach(RecognitionLanguage.allCases) { Text($0.displayName).tag($0) }
+        } label: {
           rowTitle("首选语言", "自然混合中英文，保留专业表达。")
-          Spacer()
-          Picker("首选语言", selection: $preferences.recognitionLanguage) {
-            ForEach(RecognitionLanguage.allCases) { Text($0.displayName).tag($0) }
-          }.labelsHidden().frame(width: 140)
         }
       }
-    }
-    sectionLabel("语音模型", icon: "sparkles")
-    Card {
-      VStack(alignment: .leading, spacing: 17) {
-        HStack {
-          Image(systemName: "waveform.circle.fill").font(.system(size: 36)).foregroundStyle(Palette.blue)
-          VStack(alignment: .leading, spacing: 5) {
-            Text("Qwen Omni").font(.system(size: 16, weight: .semibold))
-            Text(QwenConfiguration.model).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
-          }
-          Spacer()
-          Text("识别 + 整理").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.blue)
-            .padding(8).background(Palette.blue.opacity(0.08), in: Capsule())
+      QwenSettingsSection(
+        model: coordinator.qwenSettings,
+        connectionStatus: coordinator.connectionStatus,
+        isTestingConnection: coordinator.isTestingConnection,
+        testConnection: coordinator.testQwenConnection
+      )
+      Section("常规") {
+        Picker("外观", selection: $preferences.appearance) {
+          ForEach(AppAppearance.allCases) { Text($0.displayName).tag($0) }
         }
-        Divider()
-        rowTitle("配置目录", "使用此目录 .env 中的百炼 Key、地域与连接地址。")
-        HStack {
-          TextField("~/test-omni", text: $preferences.qwenProjectPath).textFieldStyle(.roundedBorder)
-          Button("测试连接") { coordinator.testQwenConnection() }.disabled(coordinator.isTestingConnection)
-        }
-        if !coordinator.connectionStatus.isEmpty {
-          Text(coordinator.connectionStatus).font(.system(size: 12)).foregroundStyle(.secondary).textSelection(.enabled)
-        }
-        Text("录音通过加密连接发送至配置的 Qwen 服务。密钥不会写入应用或历史记录。")
-          .font(.system(size: 11)).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
-      }
-    }
-    sectionLabel("常规", icon: "slider.horizontal.3")
-    Card {
-      VStack(spacing: 20) {
-        HStack {
-          rowTitle("外观", "选择你习惯的明暗。")
-          Spacer()
-          Picker("外观", selection: $preferences.appearance) { ForEach(AppAppearance.allCases) { Text($0.displayName).tag($0) } }
-            .labelsHidden().frame(width: 140)
-        }
-        Divider()
-        Toggle(isOn: $preferences.soundEnabled) { rowTitle("交互声音", "开始和结束录音时播放轻提示。") }.toggleStyle(.switch)
-        Divider()
-        Toggle(isOn: $preferences.keepHistory) { rowTitle("保存历史记录", "关闭后不保存新记录，已有记录可在历史页清空。") }.toggleStyle(.switch)
-        Divider()
+        Toggle(isOn: $preferences.soundEnabled) { rowTitle("交互声音", "开始和结束录音时播放轻提示。") }
+        Toggle(isOn: $preferences.keepHistory) { rowTitle("保存历史记录", "关闭后不保存新记录，已有记录可在历史页清空。") }
         Toggle(isOn: Binding(get: { loginEnabled }, set: { coordinator.setLaunchAtLogin($0); loginEnabled = coordinator.launchAtLoginEnabled })) {
           rowTitle("登录时启动", "开机后，Typless 随时待命。")
-        }.toggleStyle(.switch)
-        Divider()
-        HStack {
-          rowTitle("系统权限", permissions.allGranted ? "麦克风与辅助功能已授权。" : "需要麦克风与辅助功能授权。")
-          Spacer()
+        }
+        LabeledContent {
           Button("管理权限") { coordinator.presentPermissions() }
+        } label: {
+          rowTitle("系统权限", permissions.allGranted ? "麦克风与辅助功能已授权。" : "需要麦克风与辅助功能授权。")
         }
       }
+      .toggleStyle(SettingsSwitchToggleStyle())
+      if let error = store.errorMessage {
+        Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) }
+      }
     }
-    Text("Typless · 为流畅表达而设计").font(.system(size: 11)).foregroundStyle(.tertiary).frame(maxWidth: .infinity)
-  }
-
-  private func sectionLabel(_ title: String, icon: String) -> some View {
-    Label(title, systemImage: icon).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).padding(.top, 2)
+    .formStyle(.grouped)
   }
   private func rowTitle(_ title: String, _ subtitle: String) -> some View {
     VStack(alignment: .leading, spacing: 5) {
@@ -498,21 +398,9 @@ private struct HubView: View {
       Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
   }
-  private func searchField(_ placeholder: String) -> some View {
-    HStack(spacing: 10) {
-      Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
-      TextField(placeholder, text: $search).textFieldStyle(.plain)
-      if !search.isEmpty { Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.plain) }
-    }.padding(13).background(Palette.card, in: RoundedRectangle(cornerRadius: 10))
-      .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Palette.line))
-  }
   private func emptyState(icon: String, title: String, detail: String) -> some View {
-    VStack(spacing: 16) {
-      Image(systemName: icon).font(.system(size: 35, weight: .light)).foregroundStyle(Palette.blue.opacity(0.65))
-        .frame(width: 82, height: 82).background(Palette.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 24))
-      Text(title).font(.system(size: 18, weight: .medium))
-      Text(detail).font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-    }.padding(.vertical, 80).frame(maxWidth: .infinity)
+    ContentUnavailableView(title, systemImage: icon, description: Text(detail))
+      .frame(maxWidth: .infinity, minHeight: 260)
   }
   private var isRecording: Bool { if case .recording = coordinator.workflowState { return true }; return false }
   private var isProcessing: Bool { !coordinator.workflowState.isIdle && !isRecording }

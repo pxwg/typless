@@ -40,33 +40,34 @@ final class QwenTests: XCTestCase {
     XCTAssertEqual(QwenProtocol.transcriptionPreview(["text": "Hello ", "stash": "world"]), "Hello world")
     XCTAssertEqual(QwenProtocol.transcriptionPreview(["text": "Hello world", "stash": ""]), "Hello world")
   }
-  func testDotEnvKeepsQuotedSecretsAndIgnoresComments() {
-    let values = QwenConfiguration.parseDotEnv("""
-      # comment
-      export DASHSCOPE_API_KEY='test#key=123' # trailing
-      QWEN_REGION=singapore # comment
-      QWEN_REALTIME_URL="wss://example.com/path?x=1"
-      """)
-    XCTAssertEqual(values["DASHSCOPE_API_KEY"], "test#key=123")
-    XCTAssertEqual(values["QWEN_REGION"], "singapore")
-    XCTAssertEqual(values["QWEN_REALTIME_URL"], "wss://example.com/path?x=1")
+  func testPastedKeyTrimsSurroundingWhitespaceAndRejectsInvalidInput() throws {
+    XCTAssertEqual(try QwenConfiguration(apiKey: " \n test#key=123\r\n").apiKey, "test#key=123")
+    for key in ["", " \n", "sk-sp-example", "key with spaces", "key\r\nInjected-header", "key\0"] {
+      XCTAssertThrowsError(try QwenConfiguration(apiKey: key))
+    }
   }
 
-  func testConfigurationUsesTestOmniContract() throws {
-    let config = try QwenConfiguration.load(projectPath: "/nonexistent", environment: [
-      "DASHSCOPE_API_KEY": "test", "QWEN_REGION": "singapore", "DASHSCOPE_WORKSPACE_ID": "workspace-1",
-    ])
+  func testConfigurationUsesExplicitRegionAndWorkspace() throws {
+    let config = try QwenConfiguration(apiKey: "test", region: .singapore, workspaceID: "workspace-1")
     XCTAssertEqual(config.url.host, "workspace-1.ap-southeast-1.maas.aliyuncs.com")
     XCTAssertTrue(config.url.query!.contains("model=qwen3.5-omni-flash-realtime"))
   }
 
   func testRejectsInsecureCredentialDestinationAndMissingKeys() {
-    XCTAssertThrowsError(try QwenConfiguration.load(projectPath: "/nonexistent", environment: [:]))
-    for url in ["ws://example.com/realtime", "wss://user:password@example.com", "wss://example.com/#fragment"] {
-      XCTAssertThrowsError(try QwenConfiguration.load(projectPath: "/nonexistent", environment: [
-        "DASHSCOPE_API_KEY": "test", "QWEN_REALTIME_URL": url,
-      ]))
+    XCTAssertThrowsError(try QwenConfiguration(apiKey: ""))
+    for url in ["ws://example.com/realtime", "wss://user:password@example.com", "wss://example.com/#fragment", "wss:///path"] {
+      XCTAssertThrowsError(try QwenConfiguration(apiKey: "test", endpoint: url))
     }
+  }
+
+  func testDefaultHostsCustomEndpointAndRedaction() throws {
+    XCTAssertEqual(try QwenConfiguration(apiKey: "test").url.host, "dashscope.aliyuncs.com")
+    XCTAssertEqual(try QwenConfiguration(apiKey: "test", region: .singapore).url.host, "dashscope-intl.aliyuncs.com")
+    let config = try QwenConfiguration(apiKey: "synthetic-key", endpoint: "ws://localhost:1234/realtime?model=old&x=1")
+    let query = try XCTUnwrap(URLComponents(url: config.url, resolvingAgainstBaseURL: false)?.queryItems)
+    XCTAssertEqual(query.filter { $0.name == "model" }.map(\.value), [QwenConfiguration.model])
+    XCTAssertTrue(query.contains(URLQueryItem(name: "x", value: "1")))
+    XCTAssertEqual(config.sanitized(QwenError(message: "Invalid synthetic-key")).message, "Invalid [redacted]")
   }
 
   func testStereo48kAudioConvertsToMono16kPCM() throws {
@@ -105,7 +106,9 @@ final class QwenTests: XCTestCase {
       throw XCTSkip("Set TYPLESS_QWEN_TEST_AUDIO to explicitly enable the live Qwen test.")
     }
     let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
-    let config = try QwenConfiguration.load(projectPath: "~/test-omni")
+    // Explicit opt-in only. Uses the key saved in the app, never a local .env file.
+    let preferences = AppPreferences(defaults: UserDefaults(suiteName: "com.typless.Typless")!)
+    let config = try QwenSettingsModel(preferences: preferences).configuration()
     let expected = ProcessInfo.processInfo.environment["TYPLESS_QWEN_EXPECTED"] ?? "voice"
     for mode in WritingMode.allCases {
       let encoder = try PCMEncoder(source: file.processingFormat)

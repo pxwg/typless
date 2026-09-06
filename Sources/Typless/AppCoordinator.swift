@@ -18,6 +18,7 @@ final class AppCoordinator: ObservableObject {
   }
 
   let preferences: AppPreferences
+  let qwenSettings: QwenSettingsModel
   let permissionManager: PermissionManager
   let store = DictationStore()
   @Published var selectedPage: HubPage = .home
@@ -41,7 +42,7 @@ final class AppCoordinator: ObservableObject {
 
   var onMenuStateChanged: (() -> Void)?
 
-  private let textInjector = TextInjector()
+  private let pasteInjector = PasteInjector()
   private let overlay = RecordingOverlayController()
   private let fnListener = FnKeyListener()
   private let launchAtLoginService = LaunchAtLoginService()
@@ -67,6 +68,8 @@ final class AppCoordinator: ObservableObject {
   ) {
     self.preferences = preferences
     self.permissionManager = permissionManager
+    qwenSettings = QwenSettingsModel(preferences: preferences)
+    qwenSettings.onConfigurationChanged = { [weak self] in self?.invalidateConnectionTest() }
 
     fnListener.onFnPress = { [weak self] in self?.handleFnPress() }
     fnListener.onCancel = { [weak self] in self?.cancelRecording() }
@@ -159,25 +162,38 @@ final class AppCoordinator: ObservableObject {
 
   func testQwenConnection() {
     guard !isTestingConnection else { return }
+    guard !qwenSettings.hasUnsavedChanges else {
+      connectionStatus = "请先保存配置，再测试连接。"
+      return
+    }
     do {
-      let config = try QwenConfiguration.load(projectPath: preferences.qwenProjectPath)
+      let config = try qwenSettings.configuration()
       isTestingConnection = true
       connectionStatus = "正在连接 Qwen…"
       let probe = QwenRealtimeClient(configuration: config, language: preferences.recognitionLanguage, mode: .verbatim)
       connectionProbe = probe
       probe.onReady = { [weak self, weak probe] in
-        probe?.cancel()
-        self?.isTestingConnection = false
-        self?.connectionStatus = "连接成功 · Qwen 已就绪"
-        self?.connectionProbe = nil
+        guard let self, let probe, self.connectionProbe === probe else { return }
+        probe.cancel()
+        self.isTestingConnection = false
+        self.connectionStatus = "连接成功"
+        self.connectionProbe = nil
       }
-      probe.onFailure = { [weak self] error in
-        self?.isTestingConnection = false
-        self?.connectionStatus = error.localizedDescription
-        self?.connectionProbe = nil
+      probe.onFailure = { [weak self, weak probe] error in
+        guard let self, let probe, self.connectionProbe === probe else { return }
+        self.isTestingConnection = false
+        self.connectionStatus = error.localizedDescription
+        self.connectionProbe = nil
       }
       probe.start()
     } catch { connectionStatus = error.localizedDescription }
+  }
+
+  private func invalidateConnectionTest() {
+    connectionProbe?.cancel()
+    connectionProbe = nil
+    isTestingConnection = false
+    connectionStatus = ""
   }
 
   func presentPermissions() {
@@ -286,7 +302,7 @@ final class AppCoordinator: ObservableObject {
     )
 
     do {
-      let configuration = try QwenConfiguration.load(projectPath: preferences.qwenProjectPath)
+      let configuration = try qwenSettings.configuration()
       try session.start(configuration: configuration, language: preferences.recognitionLanguage, mode: preferences.writingMode, dictionary: store.words)
       workflowState = .recording
       fnListener.isSessionActive = true
@@ -408,7 +424,7 @@ final class AppCoordinator: ObservableObject {
       dismissToIdle(after: 0.5)
       return
     }
-    overlay.updateText(transcript, isStatus: false)
+    overlay.updateText(transcript, isStatus: false, animated: false)
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
       guard let self, sessionIdentifier == identifier else { return }
@@ -424,28 +440,16 @@ final class AppCoordinator: ObservableObject {
       }
 
       workflowState = .injecting
-      Task { [weak self] in
+      pasteInjector.inject(transcript, isValidTarget: { [weak self] in
+        self?.sessionIdentifier == identifier && InputTargetLocator.isStillFocused(target)
+      }) { [weak self] posted in
         guard let self, sessionIdentifier == identifier else { return }
-        let result = await textInjector.inject(transcript, into: target, isValidTarget: { [weak self] in
-          self?.sessionIdentifier == identifier && InputTargetLocator.isStillFocused(target)
-        })
-        guard sessionIdentifier == identifier else { return }
-        switch result {
-        case .accessibility, .pastePosted, .empty:
+        if posted {
           dismissToIdle(after: 0)
-        default:
-          let key: String
-          switch result {
-          case .uncertain: key = "status.injection_uncertain"
-          case .targetChanged: key = "status.focus_changed"
-          case .secureField: key = "status.secure_field"
-          case .noTarget: key = "status.no_target"
-          case .permissionDenied: key = "status.permission_needed"
-          default: key = "status.injection_failed"
-          }
-          recentStatus = L10n.text(key)
-          overlay.updateText(L10n.text(key), isStatus: true)
-          dismissToIdle(after: result == .uncertain ? 2 : 1)
+        } else {
+          recentStatus = L10n.text("status.injection_failed")
+          overlay.updateText(L10n.text("status.injection_failed"), isStatus: true)
+          dismissToIdle(after: 1)
         }
       }
     }

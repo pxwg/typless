@@ -5,56 +5,51 @@ struct QwenError: LocalizedError {
   var errorDescription: String? { message }
 }
 
+enum QwenRegion: String, CaseIterable, Identifiable {
+  case beijing, singapore
+  var id: String { rawValue }
+  var title: String { self == .beijing ? "北京" : "新加坡" }
+}
+
 struct QwenConfiguration {
   static let model = "qwen3.5-omni-flash-realtime"
   static let transcriptionModel = "qwen3-asr-flash-realtime"
   let apiKey: String
   let url: URL
 
-  static func load(projectPath: String, environment: [String: String] = ProcessInfo.processInfo.environment) throws -> Self {
-    let path = (projectPath as NSString).expandingTildeInPath
-    let file = URL(fileURLWithPath: path).appendingPathComponent(".env")
-    let contents = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-    var values = parseDotEnv(contents)
-    for (key, value) in environment where !value.isEmpty { values[key] = value }
-    let key = (values["DASHSCOPE_API_KEY"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !key.isEmpty else { throw QwenError(message: "未找到 Qwen API Key。请检查 \(projectPath)/.env 中的 DASHSCOPE_API_KEY。") }
+  init(apiKey: String, region: QwenRegion = .beijing, workspaceID: String = "", endpoint: String = "") throws {
+    self.apiKey = try Self.validatedAPIKey(apiKey)
+    url = try Self.connectionURL(region: region, workspaceID: workspaceID, endpoint: endpoint)
+  }
+
+  static func validatedAPIKey(_ input: String) throws -> String {
+    let key = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !key.isEmpty else { throw QwenError(message: "请先到设置的“语音模型”中粘贴并保存 API Key。") }
     guard !key.hasPrefix("sk-sp-") else { throw QwenError(message: "Qwen Realtime 需要百炼 API Key，不能使用 Coding Plan Key。") }
-    let region = values["QWEN_REGION"] ?? "beijing"
-    guard ["beijing", "singapore"].contains(region) else { throw QwenError(message: "QWEN_REGION 需要设为 beijing 或 singapore。") }
-    let workspace = values["DASHSCOPE_WORKSPACE_ID"] ?? ""
+    guard key.unicodeScalars.allSatisfy({ !CharacterSet.whitespacesAndNewlines.contains($0) && !CharacterSet.controlCharacters.contains($0) }) else {
+      throw QwenError(message: "API Key 不能包含空格或控制字符，请只粘贴密钥本身。")
+    }
+    return key
+  }
+
+  static func connectionURL(region: QwenRegion, workspaceID: String, endpoint: String) throws -> URL {
+    let workspace = workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
     guard workspace.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) else {
       throw QwenError(message: "Qwen 业务空间 ID 格式无效。")
     }
     let host = workspace.isEmpty
-      ? (region == "beijing" ? "dashscope.aliyuncs.com" : "dashscope-intl.aliyuncs.com")
-      : "\(workspace).\(region == "beijing" ? "cn-beijing" : "ap-southeast-1").maas.aliyuncs.com"
-    let endpoint = values["QWEN_REALTIME_URL"].flatMap { $0.isEmpty ? nil : $0 }
-      ?? "wss://\(host)/api-ws/v1/realtime"
-    guard var parts = URLComponents(string: endpoint), let urlHost = parts.host,
+      ? (region == .beijing ? "dashscope.aliyuncs.com" : "dashscope-intl.aliyuncs.com")
+      : "\(workspace).\(region == .beijing ? "cn-beijing" : "ap-southeast-1").maas.aliyuncs.com"
+    let endpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+    let address = endpoint.isEmpty ? "wss://\(host)/api-ws/v1/realtime" : endpoint
+    guard var parts = URLComponents(string: address), let urlHost = parts.host, !urlHost.isEmpty,
       parts.user == nil, parts.password == nil, parts.fragment == nil,
       parts.scheme == "wss" || (parts.scheme == "ws" && ["localhost", "127.0.0.1", "[::1]"].contains(urlHost))
     else { throw QwenError(message: "Qwen 连接地址必须使用 wss://，仅本机测试允许 ws://。") }
     parts.queryItems = (parts.queryItems ?? []).filter { $0.name != "model" }
       + [URLQueryItem(name: "model", value: model)]
     guard let url = parts.url else { throw QwenError(message: "Qwen 连接地址无效。") }
-    return Self(apiKey: key, url: url)
-  }
-
-  static func parseDotEnv(_ text: String) -> [String: String] {
-    var values: [String: String] = [:]
-    for line in text.components(separatedBy: .newlines) {
-      var line = line.trimmingCharacters(in: .whitespaces)
-      if line.hasPrefix("export ") { line = String(line.dropFirst(7)) }
-      guard !line.hasPrefix("#"), let equal = line.firstIndex(of: "=") else { continue }
-      let key = line[..<equal].trimmingCharacters(in: .whitespaces)
-      var value = line[line.index(after: equal)...].trimmingCharacters(in: .whitespaces)
-      if let quote = value.first, quote == "\"" || quote == "'" {
-        if let end = value.dropFirst().firstIndex(of: quote) { value = String(value[value.index(after: value.startIndex)..<end]) }
-      } else if let comment = value.range(of: " #") { value = String(value[..<comment.lowerBound]).trimmingCharacters(in: .whitespaces) }
-      values[key] = value
-    }
-    return values
+    return url
   }
 
   func sanitized(_ error: Error) -> QwenError {

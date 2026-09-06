@@ -12,8 +12,7 @@
 "status.refine_failed" = "优化失败 · 将使用原始转录";
 "status.permission_needed" = "需要授权";
 "status.no_speech" = "未检测到语音";
-"status.injection_failed" = "无法写入转录文字 · 请使用“复制上次转录”";
-"status.injection_uncertain" = "写入结果未确认，未重复粘贴 · 请检查输入框，需要时复制上次转录";
+"status.injection_failed" = "无法粘贴转录文字 · 请使用“复制上次转录”";
 "menu.pause" = "暂停监听";
 "menu.resume" = "恢复监听";
 "menu.language" = "识别语言";

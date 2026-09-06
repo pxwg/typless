@@ -3,3 +3,13 @@
 *.xcodeproj/
 .DS_Store
 
+# Local configuration, credentials, and private development notes.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.keychain
+*.keychain-db
+.local-docs/
