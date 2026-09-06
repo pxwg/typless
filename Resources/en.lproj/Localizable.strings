@@ -12,7 +12,8 @@
 "status.refine_failed" = "Refinement failed · using transcript";
 "status.permission_needed" = "Permissions required";
 "status.no_speech" = "No speech detected";
-"status.injection_failed" = "Couldn’t paste the transcript";
+"status.injection_failed" = "Couldn’t insert the transcript · use Copy Last Transcript";
+"status.injection_uncertain" = "Insertion not confirmed; paste skipped to avoid duplicates · check the field before copying";
 "menu.pause" = "Pause Listening";
 "menu.resume" = "Resume Listening";
 "menu.language" = "Recognition Language";

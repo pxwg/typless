@@ -41,14 +41,13 @@ final class AppCoordinator: ObservableObject {
 
   var onMenuStateChanged: (() -> Void)?
 
-  private let pasteInjector = PasteInjector()
+  private let textInjector = TextInjector()
   private let overlay = RecordingOverlayController()
   private let fnListener = FnKeyListener()
   private let launchAtLoginService = LaunchAtLoginService()
   private lazy var hub = HubWindowController(coordinator: self)
   private var originalTarget: InputTarget?
   private var recordingStartedAt: Date?
-  private var fnPressedAt: Date?
   private var recordingDuration: TimeInterval = 0
   private var practiceSession = false
   private var connectionProbe: QwenRealtimeClient?
@@ -69,11 +68,10 @@ final class AppCoordinator: ObservableObject {
     self.preferences = preferences
     self.permissionManager = permissionManager
 
-    fnListener.onFnDown = { [weak self] in self?.handleFnDown() }
-    fnListener.onFnUp = { [weak self] in self?.handleFnUp() }
+    fnListener.onFnPress = { [weak self] in self?.handleFnPress() }
     fnListener.onCancel = { [weak self] in self?.cancelRecording() }
     overlay.onCancel = { [weak self] in self?.cancelRecording() }
-    overlay.onFinish = { [weak self] in self?.handleFnUp(force: true) }
+    overlay.onFinish = { [weak self] in self?.finishRecording() }
 
     permissionCancellable = permissionManager.$accessibilityGranted
       .removeDuplicates()
@@ -225,10 +223,9 @@ final class AppCoordinator: ObservableObject {
     connectionProbe?.cancel()
   }
 
-  private func handleFnDown() {
-    fnPressedAt = Date()
+  private func handleFnPress() {
     if case .recording = workflowState {
-      if preferences.shortcutMode != .hold { beginFinalizing(reachedLimit: false) }
+      finishRecording()
       return
     }
     startRecording(practice: false)
@@ -307,11 +304,8 @@ final class AppCoordinator: ObservableObject {
     }
   }
 
-  private func handleFnUp(force: Bool = false) {
+  private func finishRecording() {
     guard case .recording = workflowState else { return }
-    if !force {
-      guard preferences.shortcutMode.finishesOnRelease(heldFor: Date().timeIntervalSince(fnPressedAt ?? Date())) else { return }
-    }
     beginFinalizing(reachedLimit: false)
   }
 
@@ -430,19 +424,28 @@ final class AppCoordinator: ObservableObject {
       }
 
       workflowState = .injecting
-      pasteInjector.inject(transcript, isValidTarget: { [weak self] in
-        self?.sessionIdentifier == identifier && InputTargetLocator.isStillFocused(target)
-      }) { [weak self] success in
+      Task { [weak self] in
         guard let self, sessionIdentifier == identifier else { return }
-        if success {
+        let result = await textInjector.inject(transcript, into: target, isValidTarget: { [weak self] in
+          self?.sessionIdentifier == identifier && InputTargetLocator.isStillFocused(target)
+        })
+        guard sessionIdentifier == identifier else { return }
+        switch result {
+        case .accessibility, .pastePosted, .empty:
           dismissToIdle(after: 0)
-        } else {
-          recentStatus = L10n.text("status.injection_failed")
-          overlay.updateText(
-            L10n.text("status.injection_failed"),
-            isStatus: true
-          )
-          dismissToIdle(after: 1)
+        default:
+          let key: String
+          switch result {
+          case .uncertain: key = "status.injection_uncertain"
+          case .targetChanged: key = "status.focus_changed"
+          case .secureField: key = "status.secure_field"
+          case .noTarget: key = "status.no_target"
+          case .permissionDenied: key = "status.permission_needed"
+          default: key = "status.injection_failed"
+          }
+          recentStatus = L10n.text(key)
+          overlay.updateText(L10n.text(key), isStatus: true)
+          dismissToIdle(after: result == .uncertain ? 2 : 1)
         }
       }
     }

@@ -39,6 +39,6 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Typless needs microphone access to transcribe speech while you hold Fn.</string>
+    <string>Typless needs microphone access to transcribe speech. Press Fn to start recording, then press Fn again to finish.</string>
 </dict>
 </plist>

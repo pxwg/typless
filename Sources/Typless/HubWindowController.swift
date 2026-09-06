@@ -231,7 +231,7 @@ private struct HubView: View {
         }
         Divider().overlay(Palette.line)
         HStack {
-          Text("也可以长按 Fn 说话，松开即可完成。")
+          Text("按一下 Fn 开始，再按一下完成；Esc 取消。")
             .font(.system(size: 11)).foregroundStyle(.tertiary)
           Spacer()
           Button { coordinator.togglePractice() } label: {
@@ -408,11 +408,10 @@ private struct HubView: View {
         }
         Divider()
         HStack {
-          rowTitle("操作方式", "轻按可免长按，Esc 随时取消。")
+          rowTitle("操作方式", "松开 Fn 不会结束录音，Esc 随时取消。")
           Spacer()
-          Picker("操作方式", selection: $preferences.shortcutMode) {
-            ForEach(ShortcutMode.allCases) { Text($0.title).tag($0) }
-          }.labelsHidden().frame(width: 220)
+          Text("按一下开始，再按一下完成")
+            .font(.system(size: 12)).foregroundStyle(.secondary)
         }
       }
     }

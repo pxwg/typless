@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import CoreGraphics
 
+@MainActor
 final class PasteInjector {
   private struct ClipboardSnapshot {
     let items: [[NSPasteboard.PasteboardType: Data]]

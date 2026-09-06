@@ -32,13 +32,6 @@ final class QwenTests: XCTestCase {
     XCTAssertTrue(instructions.contains("不可信的口述数据"))
   }
 
-  func testShortTapLatchesButHoldFinishesOnRelease() {
-    XCTAssertFalse(ShortcutMode.automatic.finishesOnRelease(heldFor: 0.1))
-    XCTAssertTrue(ShortcutMode.automatic.finishesOnRelease(heldFor: 0.4))
-    XCTAssertTrue(ShortcutMode.hold.finishesOnRelease(heldFor: 0.1))
-    XCTAssertFalse(ShortcutMode.toggle.finishesOnRelease(heldFor: 5))
-  }
-
   func testMixedLanguageStatisticsCountChineseCharactersAndEnglishWords() {
     let entry = DictationEntry(text: "你好，Qwen voice。", rawText: "", duration: 1, appName: "Test")
     XCTAssertEqual(entry.wordCount, 4)

@@ -60,8 +60,9 @@ does not need to run.
   system preferences at launch. If changed with `defaults`, macOS may require
   signing out and back in; use the Settings UI for an immediate change.
 - Tap **Fn** to start, then tap again to finish.
-- Hold **Fn** for more than 300 ms to use push-to-talk; release to finish.
-- Settings also offers dedicated hold-only and toggle-only modes.
+- Releasing **Fn** never finishes recording, regardless of how long it was held.
+  There is no hold-to-talk or automatic short/long-press mode; older mode settings
+  are ignored.
 - **Esc** cancels recording or pending transcription.
 - The floating voice bar has cancel and stop controls, a real audio meter,
   elapsed time, and a processing state. It does not activate the app.
@@ -69,9 +70,15 @@ does not need to run.
 - The original editable field is captured when recording starts. If focus
   changes, the result stays in history and **复制上次转写** instead of being
   inserted in the new field. Secure fields are excluded.
-- Text is pasted with Cmd+V without switching the user's input method (including
-  Squirrel/Rime). The clipboard is restored after paste unless the user changed
-  it in the meantime. Accessibility direct writing is not enabled yet.
+- Text is inserted through Accessibility when the target supports writing its
+  selected text: replace the selection, or insert at the caret. The entire field
+  is never replaced with `AXValue`. This path does not touch the clipboard.
+- If that operation is read-only or explicitly unsupported, Typless falls back
+  to Cmd+V. Neither path switches the user's input method (including Squirrel/Rime).
+  The fallback restores the clipboard unless the user changed it in the meantime.
+- An Accessibility write timeout or ambiguous failure does **not** trigger another
+  insertion, to avoid duplicates. Check the field before using **复制上次转录**.
+  Focus changes, cancellation, and permission failures also stop automatic fallback.
 - **试着说一句** on Home lets you test without targeting another app.
 
 ## Local data
@@ -87,6 +94,10 @@ CSV/text lists.
 
 `swift test` exercises configuration parsing and validation, stereo 48 kHz →
 mono 16 kHz conversion including the resampler tail, and history persistence.
+Insertion tests cover AX-first routing, safe paste fallback, uncertain-write
+protection, focus/cancellation guards, secure fields, and Unicode text. In-process
+native `NSTextView` checks exercise insertion at the caret and selected-text replacement;
+they do not verify cross-process AX transport or compatibility with every editor.
 
 An opt-in live integration test sends only an explicitly supplied audio file,
 using the real Qwen client in both writing modes:

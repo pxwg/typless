@@ -43,7 +43,6 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 final class AppPreferences: ObservableObject {
   @Published var qwenProjectPath: String { didSet { defaults.set(qwenProjectPath, forKey: "qwenProjectPath") } }
   @Published var writingMode: WritingMode { didSet { defaults.set(writingMode.rawValue, forKey: "writingMode") } }
-  @Published var shortcutMode: ShortcutMode { didSet { defaults.set(shortcutMode.rawValue, forKey: "shortcutMode") } }
   @Published var soundEnabled: Bool { didSet { defaults.set(soundEnabled, forKey: "soundEnabled") } }
   @Published var keepHistory: Bool { didSet { defaults.set(keepHistory, forKey: "keepHistory") } }
   private enum Key {
@@ -80,7 +79,6 @@ final class AppPreferences: ObservableObject {
     self.defaults = defaults
     qwenProjectPath = defaults.string(forKey: "qwenProjectPath") ?? "~/test-omni"
     writingMode = WritingMode(rawValue: defaults.string(forKey: "writingMode") ?? "") ?? .polished
-    shortcutMode = ShortcutMode(rawValue: defaults.string(forKey: "shortcutMode") ?? "") ?? .automatic
     soundEnabled = defaults.object(forKey: "soundEnabled") as? Bool ?? true
     keepHistory = defaults.object(forKey: "keepHistory") as? Bool ?? true
     recognitionLanguage =
@@ -94,20 +92,5 @@ final class AppPreferences: ObservableObject {
     llmEnabled = defaults.bool(forKey: Key.llmEnabled)
     apiBaseURL = defaults.string(forKey: Key.apiBaseURL) ?? "https://api.openai.com/v1"
     model = defaults.string(forKey: Key.model) ?? ""
-  }
-}
-
-enum ShortcutMode: String, CaseIterable, Identifiable {
-  case automatic, hold, toggle
-  var id: String { rawValue }
-  func finishesOnRelease(heldFor seconds: TimeInterval) -> Bool {
-    self == .hold || (self == .automatic && seconds >= 0.3)
-  }
-  var title: String {
-    switch self {
-    case .automatic: "轻按切换 / 长按说话"
-    case .hold: "按住说话，松开完成"
-    case .toggle: "按一下开始，再按一下完成"
-    }
   }
 }

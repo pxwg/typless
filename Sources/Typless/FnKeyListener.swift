@@ -1,6 +1,22 @@
 import Carbon.HIToolbox
 import CoreGraphics
 
+/// One press per down/up cycle. Release and repeated down events never toggle;
+/// press duration and callback scheduling delays do not affect this decision.
+struct FnPressState {
+  private(set) var isDown = false
+
+  mutating func update(isDown: Bool) -> Bool {
+    let pressed = isDown && !self.isDown
+    self.isDown = isDown
+    return pressed
+  }
+
+  mutating func reset() {
+    isDown = false
+  }
+}
+
 private func fnEventTapCallback(
   proxy _: CGEventTapProxy,
   type: CGEventType,
@@ -15,14 +31,13 @@ private func fnEventTapCallback(
 }
 
 final class FnKeyListener {
-  var onFnDown: (() -> Void)?
-  var onFnUp: (() -> Void)?
+  var onFnPress: (() -> Void)?
   var onCancel: (() -> Void)?
   var isSessionActive = false
 
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
-  private var fnIsDown = false
+  private var fnPressState = FnPressState()
   private var shouldListen = false
 
   var isRunning: Bool {
@@ -68,7 +83,7 @@ final class FnKeyListener {
     if let eventTap {
       CGEvent.tapEnable(tap: eventTap, enable: false)
     }
-    fnIsDown = false
+    fnPressState.reset()
   }
 
   fileprivate func handle(
@@ -76,10 +91,10 @@ final class FnKeyListener {
     event: CGEvent
   ) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-      if fnIsDown && isSessionActive {
+      if fnPressState.isDown && isSessionActive {
         DispatchQueue.main.async { [weak self] in self?.onCancel?() }
       }
-      fnIsDown = false
+      fnPressState.reset()
       if shouldListen, let eventTap {
         CGEvent.tapEnable(tap: eventTap, enable: true)
       }
@@ -89,12 +104,8 @@ final class FnKeyListener {
     let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
     if type == .flagsChanged, keyCode == CGKeyCode(kVK_Function) {
       let isDown = event.flags.contains(.maskSecondaryFn)
-      if isDown, !fnIsDown {
-        fnIsDown = true
-        DispatchQueue.main.async { [weak self] in self?.onFnDown?() }
-      } else if !isDown, fnIsDown {
-        fnIsDown = false
-        DispatchQueue.main.async { [weak self] in self?.onFnUp?() }
+      if fnPressState.update(isDown: isDown) {
+        DispatchQueue.main.async { [weak self] in self?.onFnPress?() }
       }
       return nil
     }

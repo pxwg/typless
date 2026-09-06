@@ -58,7 +58,7 @@ enum InputTargetLocator {
   }
 
   static func isStillFocused(_ target: InputTarget) -> Bool {
-    guard let current = focusedTarget() else {
+    guard let current = focusedTarget(), current.isEditable, !current.isSecure else {
       return false
     }
     return current.processIdentifier == target.processIdentifier
