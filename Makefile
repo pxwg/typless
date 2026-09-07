@@ -22,6 +22,7 @@ build: $(APP_ICON)
 	ditto Resources/en.lproj "$(APP_CONTENTS)/Resources/en.lproj"
 	ditto Resources/zh-Hans.lproj "$(APP_CONTENTS)/Resources/zh-Hans.lproj"
 	cp "$(APP_ICON)" "$(APP_CONTENTS)/Resources/AppIcon.icns"
+	cp THIRD_PARTY_NOTICES.txt "$(APP_CONTENTS)/Resources/"
 	chmod 755 "$(APP_EXECUTABLE)"
 	codesign --force --deep --options runtime --entitlements "$(ENTITLEMENTS)" --sign "$(SIGNING_IDENTITY)" --identifier "$(BUNDLE_ID)" "$(APP_BUNDLE)"
 	codesign --verify --deep --strict --verbose=2 "$(APP_BUNDLE)"

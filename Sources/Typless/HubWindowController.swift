@@ -375,6 +375,9 @@ private struct HubView: View {
           ForEach(AppAppearance.allCases) { Text($0.displayName).tag($0) }
         }
         Toggle(isOn: $preferences.soundEnabled) { rowTitle("交互声音", "开始和结束录音时播放轻提示。") }
+        Toggle(isOn: $preferences.showRecordingControls) {
+          rowTitle("显示胶囊控制按钮", "显示取消和完成按钮；关闭时使用快捷键操作。")
+        }
         Toggle(isOn: $preferences.keepHistory) { rowTitle("保存历史记录", "关闭后不保存新记录，已有记录可在历史页清空。") }
         Toggle(isOn: Binding(get: { loginEnabled }, set: { coordinator.setLaunchAtLogin($0); loginEnabled = coordinator.launchAtLoginEnabled })) {
           rowTitle("登录时启动", "开机后，Typless 随时待命。")

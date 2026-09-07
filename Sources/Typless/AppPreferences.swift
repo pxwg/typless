@@ -51,6 +51,7 @@ final class AppPreferences: ObservableObject {
   private enum Key {
     static let recognitionLanguage = "recognitionLanguage"
     static let appearance = "appearance"
+    static let showRecordingControls = "showRecordingControls"
     static let llmEnabled = "llmEnabled"
     static let apiBaseURL = "apiBaseURL"
     static let model = "llmModel"
@@ -64,6 +65,10 @@ final class AppPreferences: ObservableObject {
 
   @Published var appearance: AppAppearance {
     didSet { defaults.set(appearance.rawValue, forKey: Key.appearance) }
+  }
+
+  @Published var showRecordingControls: Bool {
+    didSet { defaults.set(showRecordingControls, forKey: Key.showRecordingControls) }
   }
 
   @Published var llmEnabled: Bool {
@@ -95,6 +100,7 @@ final class AppPreferences: ObservableObject {
       AppAppearance(
         rawValue: defaults.string(forKey: Key.appearance) ?? ""
       ) ?? .system
+    showRecordingControls = defaults.bool(forKey: Key.showRecordingControls)
     llmEnabled = defaults.bool(forKey: Key.llmEnabled)
     apiBaseURL = defaults.string(forKey: Key.apiBaseURL) ?? "https://api.openai.com/v1"
     model = defaults.string(forKey: Key.model) ?? ""

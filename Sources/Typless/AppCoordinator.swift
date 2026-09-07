@@ -43,7 +43,7 @@ final class AppCoordinator: ObservableObject {
   var onMenuStateChanged: (() -> Void)?
 
   private let pasteInjector = PasteInjector()
-  private let overlay = RecordingOverlayController()
+  private let overlay: RecordingOverlayController
   private let fnListener = FnKeyListener()
   private let launchAtLoginService = LaunchAtLoginService()
   private lazy var hub = HubWindowController(coordinator: self)
@@ -68,6 +68,7 @@ final class AppCoordinator: ObservableObject {
   ) {
     self.preferences = preferences
     self.permissionManager = permissionManager
+    overlay = RecordingOverlayController(preferences: preferences)
     qwenSettings = QwenSettingsModel(preferences: preferences)
     qwenSettings.onConfigurationChanged = { [weak self] in self?.invalidateConnectionTest() }
 
