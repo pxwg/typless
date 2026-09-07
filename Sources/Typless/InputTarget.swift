@@ -1,68 +1,103 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 
-struct InputTarget {
-  let element: AXUIElement
-  let processIdentifier: pid_t
-  let isSecure: Bool
-  let isEditable: Bool
-  let screen: NSScreen?
+enum InputEditability: Equatable {
+  case editable, unavailable, nonEditable, secure
+
+  init(role: String?, subrole: String? = nil, enabled: Bool? = nil,
+    explicitlyEditable: Bool? = nil, selectedTextSettable: Bool = false,
+    secureInputEnabled: Bool = false)
+  {
+    if secureInputEnabled || subrole == (kAXSecureTextFieldSubrole as String) {
+      self = .secure
+    } else if enabled == false || explicitlyEditable == false {
+      self = .nonEditable
+    } else if [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole].contains(role ?? "")
+      || explicitlyEditable == true || selectedTextSettable {
+      self = .editable
+    } else if [kAXButtonRole, kAXCheckBoxRole, kAXRadioButtonRole, kAXPopUpButtonRole,
+      kAXSliderRole, kAXMenuItemRole, kAXMenuBarItemRole].contains(role ?? "") {
+      self = .nonEditable
+    } else {
+      // Missing AX information is not evidence that the keyboard cannot type.
+      self = .unavailable
+    }
+  }
 }
 
+struct InputTarget {
+  let element: AXUIElement?
+  let window: AXUIElement?
+  let processIdentifier: pid_t
+  let editability: InputEditability
+  let screen: NSScreen?
+
+  var isSecure: Bool { editability == .secure }
+
+  var allowsDictation: Bool {
+    switch editability {
+    case .editable: return element != nil
+    case .unavailable: return window != nil
+    case .nonEditable, .secure: return false
+    }
+  }
+
+  func matches(_ current: InputTarget) -> Bool {
+    guard allowsDictation, current.allowsDictation,
+      current.processIdentifier == processIdentifier
+    else { return false }
+
+    if let window {
+      guard let currentWindow = current.window, CFEqual(window, currentWindow) else { return false }
+    }
+    if editability == .editable {
+      // Never weaken a precise target if its AX information disappears later.
+      guard current.editability == .editable, let element, let currentElement = current.element else { return false }
+      return CFEqual(element, currentElement)
+    }
+    return true
+  }
+}
+
+@MainActor
 enum InputTargetLocator {
   static func focusedTarget() -> InputTarget? {
-    let system = AXUIElementCreateSystemWide()
-    var focusedValue: CFTypeRef?
-    let error = AXUIElementCopyAttributeValue(
-      system,
-      kAXFocusedUIElementAttribute as CFString,
-      &focusedValue
-    )
-    guard error == .success, let focusedValue else {
-      return nil
-    }
-
-    let element = focusedValue as! AXUIElement
-    var pid: pid_t = 0
-    guard AXUIElementGetPid(element, &pid) == .success else {
-      return nil
-    }
-
-    let role = stringAttribute(kAXRoleAttribute, of: element) ?? ""
-    let subrole = stringAttribute(kAXSubroleAttribute, of: element) ?? ""
-    let secure = subrole == (kAXSecureTextFieldSubrole as String)
+    guard AXIsProcessTrusted(), let app = NSWorkspace.shared.frontmostApplication else { return nil }
+    let pid = app.processIdentifier
+    let application = AXUIElementCreateApplication(pid)
+    let element = elementAttribute(kAXFocusedUIElementAttribute, of: application)
+    let window = element.flatMap { elementAttribute(kAXWindowAttribute, of: $0) }
+      ?? elementAttribute(kAXFocusedWindowAttribute, of: application)
 
     var selectedTextSettable = DarwinBoolean(false)
-    let settableError = AXUIElementIsAttributeSettable(
-      element,
-      kAXSelectedTextAttribute as CFString,
-      &selectedTextSettable
+    if let element {
+      var elementPID: pid_t = 0
+      guard AXUIElementGetPid(element, &elementPID) == .success, elementPID == pid else { return nil }
+      _ = AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &selectedTextSettable)
+    }
+    let editability = InputEditability(
+      role: element.flatMap { stringAttribute(kAXRoleAttribute, of: $0) },
+      subrole: element.flatMap { stringAttribute(kAXSubroleAttribute, of: $0) },
+      enabled: element.flatMap { boolAttribute(kAXEnabledAttribute, of: $0) },
+      explicitlyEditable: element.flatMap { boolAttribute("AXEditable", of: $0) },
+      selectedTextSettable: selectedTextSettable.boolValue,
+      secureInputEnabled: IsSecureEventInputEnabled()
     )
-    let knownEditableRoles: Set<String> = [
-      kAXTextFieldRole as String,
-      kAXTextAreaRole as String,
-      kAXComboBoxRole as String,
-    ]
-    let editable =
-      secure
-      || knownEditableRoles.contains(role)
-      || (settableError == .success && selectedTextSettable.boolValue)
+    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return nil }
 
     return InputTarget(
       element: element,
+      window: window,
       processIdentifier: pid,
-      isSecure: secure,
-      isEditable: editable,
-      screen: screenContaining(element: element)
+      editability: editability,
+      screen: window.flatMap { screenContaining(window: $0) }
     )
   }
 
   static func isStillFocused(_ target: InputTarget) -> Bool {
-    guard let current = focusedTarget(), current.isEditable, !current.isSecure else {
-      return false
-    }
-    return current.processIdentifier == target.processIdentifier
-      && CFEqual(current.element, target.element)
+    guard let current = focusedTarget() else { return false }
+    return target.matches(current)
   }
 
   static func fallbackScreen() -> NSScreen? {
@@ -78,20 +113,21 @@ enum InputTargetLocator {
     return value as? String
   }
 
-  private static func screenContaining(element: AXUIElement) -> NSScreen? {
-    var windowValue: CFTypeRef?
-    guard
-      AXUIElementCopyAttributeValue(
-        element,
-        kAXWindowAttribute as CFString,
-        &windowValue
-      ) == .success,
-      let windowValue
-    else {
-      return nil
-    }
+  private static func boolAttribute(_ attribute: String, of element: AXUIElement) -> Bool? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+    return value as? Bool
+  }
 
-    let window = windowValue as! AXUIElement
+  private static func elementAttribute(_ attribute: String, of element: AXUIElement) -> AXUIElement? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+      let value, CFGetTypeID(value) == AXUIElementGetTypeID()
+    else { return nil }
+    return (value as! AXUIElement)
+  }
+
+  private static func screenContaining(window: AXUIElement) -> NSScreen? {
     guard
       let position = pointAttribute(kAXPositionAttribute, of: window),
       let size = sizeAttribute(kAXSizeAttribute, of: window),

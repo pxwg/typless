@@ -86,6 +86,85 @@ final class QwenSettingsTests: XCTestCase {
     }
   }
 
+  @MainActor func testSystemPromptUsesSavedValueAcrossRestartAndBothRequestStages() throws {
+    try fixture { defaults, _, _, model in
+      XCTAssertEqual(model.systemPrompt, QwenProtocol.defaultSystemPrompt)
+      XCTAssertFalse(model.hasUnsavedChanges)
+      model.apiKeyInput = "synthetic"
+      XCTAssertTrue(model.save())
+      let custom = "保留所有语气词和重复。\n只修正标点，保留疑问句。"
+      model.systemPrompt = " \n\(custom)\n "
+      XCTAssertTrue(model.hasUnsavedChanges)
+      XCTAssertFalse(model.canTestConnection)
+      XCTAssertEqual(try model.configuration().systemPrompt, "", "Unsaved prompts must not affect dictation")
+      XCTAssertTrue(model.save())
+      XCTAssertFalse(model.hasUnsavedChanges)
+      XCTAssertTrue(model.canTestConnection)
+
+      let preferences = AppPreferences(defaults: defaults)
+      XCTAssertEqual(preferences.qwenSystemPrompt, custom)
+      let config = try model.configuration()
+      XCTAssertEqual(config.systemPrompt, custom)
+      let initial = QwenProtocol.session(language: .simplifiedChinese, mode: .polished, dictionary: [], systemPrompt: config.systemPrompt)
+      let refinement = try QwenProtocol.refinementInstructions(rawText: "嗯，你好吗？", language: .simplifiedChinese, dictionary: [], systemPrompt: config.systemPrompt)
+      for instructions in [try XCTUnwrap(initial["instructions"] as? String), refinement] {
+        XCTAssertTrue(instructions.contains(custom))
+        XCTAssertFalse(instructions.contains(QwenProtocol.defaultSystemPrompt), "Custom rules replace default editing rules")
+        XCTAssertFalse(instructions.contains("无意义的语气词是否已删除"), "The refinement tail must not reintroduce default editing rules")
+        XCTAssertTrue(instructions.hasPrefix(QwenProtocol.dictationBoundary))
+      }
+      model.systemPrompt = "另一个未保存的草稿"
+      let restarted = QwenSettingsModel(preferences: preferences, keyStore: InMemoryKeyStore())
+      XCTAssertEqual(restarted.systemPrompt, custom)
+      XCTAssertFalse(restarted.hasUnsavedChanges)
+    }
+  }
+
+  @MainActor func testRestoringOrClearingSystemPromptFollowsDefaultAfterSave() throws {
+    try fixture { defaults, _, _, model in
+      model.apiKeyInput = "synthetic"
+      model.systemPrompt = "只修正标点。"
+      XCTAssertTrue(model.save())
+      model.restoreDefaultSystemPrompt()
+      XCTAssertEqual(model.systemPrompt, QwenProtocol.defaultSystemPrompt)
+      XCTAssertTrue(model.hasUnsavedChanges)
+      XCTAssertEqual(try model.configuration().systemPrompt, "只修正标点。")
+      XCTAssertTrue(model.save())
+      XCTAssertEqual(try model.configuration().systemPrompt, "")
+      XCTAssertEqual(AppPreferences(defaults: defaults).qwenSystemPrompt, "")
+      XCTAssertFalse(model.hasUnsavedChanges)
+
+      model.systemPrompt = "保留重复。"
+      XCTAssertTrue(model.save())
+      model.systemPrompt = " \n\t "
+      XCTAssertTrue(model.save())
+      XCTAssertEqual(model.systemPrompt, QwenProtocol.defaultSystemPrompt)
+      XCTAssertEqual(try model.configuration().systemPrompt, "")
+      XCTAssertFalse(model.hasUnsavedChanges)
+    }
+  }
+
+  @MainActor func testFailedSaveKeepsSavedPromptAndRetainsDraftForRetry() throws {
+    try fixture { _, _, store, model in
+      model.apiKeyInput = "synthetic"
+      model.systemPrompt = "已保存的规则"
+      XCTAssertTrue(model.save())
+      model.systemPrompt = "新规则"
+      model.endpoint = "ws://example.com"
+      XCTAssertFalse(model.save())
+      XCTAssertEqual(try model.configuration().systemPrompt, "已保存的规则")
+      model.endpoint = ""
+      store.failure = KeychainError.unexpectedStatus(errSecAuthFailed)
+      XCTAssertFalse(model.save())
+      store.failure = nil
+      XCTAssertEqual(try model.configuration().systemPrompt, "已保存的规则")
+      XCTAssertEqual(model.systemPrompt, "新规则")
+      XCTAssertTrue(model.hasUnsavedChanges)
+      XCTAssertTrue(model.save())
+      XCTAssertEqual(try model.configuration().systemPrompt, "新规则")
+    }
+  }
+
   @MainActor func testInvalidReplacementAndStorageFailurePreserveSavedConfiguration() throws {
     try fixture { defaults, _, store, model in
       model.apiKeyInput = "original"

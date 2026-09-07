@@ -44,6 +44,7 @@ final class AppPreferences: ObservableObject {
   @Published var qwenRegion: QwenRegion { didSet { defaults.set(qwenRegion.rawValue, forKey: "qwenRegion") } }
   @Published var qwenWorkspaceID: String { didSet { defaults.set(qwenWorkspaceID, forKey: "qwenWorkspaceID") } }
   @Published var qwenEndpoint: String { didSet { defaults.set(qwenEndpoint, forKey: "qwenEndpoint") } }
+  @Published var qwenSystemPrompt: String { didSet { defaults.set(qwenSystemPrompt, forKey: "qwenSystemPrompt") } }
   @Published var writingMode: WritingMode { didSet { defaults.set(writingMode.rawValue, forKey: "writingMode") } }
   @Published var soundEnabled: Bool { didSet { defaults.set(soundEnabled, forKey: "soundEnabled") } }
   @Published var keepHistory: Bool { didSet { defaults.set(keepHistory, forKey: "keepHistory") } }
@@ -82,6 +83,7 @@ final class AppPreferences: ObservableObject {
     qwenRegion = QwenRegion(rawValue: defaults.string(forKey: "qwenRegion") ?? "") ?? .beijing
     qwenWorkspaceID = defaults.string(forKey: "qwenWorkspaceID") ?? ""
     qwenEndpoint = defaults.string(forKey: "qwenEndpoint") ?? ""
+    qwenSystemPrompt = defaults.string(forKey: "qwenSystemPrompt") ?? ""
     writingMode = WritingMode(rawValue: defaults.string(forKey: "writingMode") ?? "") ?? .polished
     soundEnabled = defaults.object(forKey: "soundEnabled") as? Bool ?? true
     keepHistory = defaults.object(forKey: "keepHistory") as? Bool ?? true

@@ -52,7 +52,7 @@ final class QwenRealtimeClient {
     sendTask = Task { [weak self] in
       guard let self else { return }
       do {
-        try await send("session.update", fields: ["session": QwenProtocol.session(language: language, mode: mode, dictionary: dictionary)])
+        try await send("session.update", fields: ["session": QwenProtocol.session(language: language, mode: mode, dictionary: dictionary, systemPrompt: configuration.systemPrompt)])
         while !stopped {
           let event = try await receive()
           if event["type"] as? String == "session.updated" {
@@ -155,7 +155,7 @@ final class QwenRealtimeClient {
           return
         }
         responseRequested = true
-        let instructions = try QwenProtocol.refinementInstructions(rawText: rawText ?? "", language: language, dictionary: dictionary)
+        let instructions = try QwenProtocol.refinementInstructions(rawText: rawText ?? "", language: language, dictionary: dictionary, systemPrompt: configuration.systemPrompt)
         pendingWritingInstructions = instructions
         try await send("session.update", fields: ["session": ["instructions": instructions]])
       }

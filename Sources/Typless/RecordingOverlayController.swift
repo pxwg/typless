@@ -29,10 +29,10 @@ final class RecordingOverlayController {
     return panel
   }
 
-  func show(on screen: NSScreen?, appearance: AppAppearance, initialStatus: String) {
+  func show(on screen: NSScreen?, appearance: AppAppearance, initialStatus: String, phase: VoiceBarModel.Phase = .recording) {
     hideGeneration += 1
     model.transcript.update(initialStatus, isStatus: true, animated: false)
-    model.recording = true
+    model.phase = phase
     model.level = 0
     model.startedAt = Date()
     panel.appearance = appearance.nsAppearance
@@ -51,7 +51,7 @@ final class RecordingOverlayController {
     model.transcript.update(text, isStatus: isStatus, animated: animated)
   }
   func updateLevel(_ level: Double) { model.level = max(0, min(1, level)) }
-  func setRecording(_ recording: Bool) { model.recording = recording }
+  func setPhase(_ phase: VoiceBarModel.Phase) { model.phase = phase }
   func hide(completion: (() -> Void)? = nil) {
     model.transcript.finishImmediately()
     hideGeneration += 1

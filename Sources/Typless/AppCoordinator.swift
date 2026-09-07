@@ -259,12 +259,12 @@ final class AppCoordinator: ObservableObject {
     }
 
     let initialTarget = practice ? nil : InputTargetLocator.focusedTarget()
-    guard practice || initialTarget?.isEditable == true else {
-      presentTransientStatus(L10n.text("status.no_target"))
-      return
-    }
     guard initialTarget?.isSecure != true else {
       presentTransientStatus(L10n.text("status.secure_field"))
+      return
+    }
+    guard practice || initialTarget?.allowsDictation == true else {
+      presentTransientStatus(L10n.text("status.no_target"))
       return
     }
 
@@ -306,7 +306,7 @@ final class AppCoordinator: ObservableObject {
       try session.start(configuration: configuration, language: preferences.recognitionLanguage, mode: preferences.writingMode, dictionary: store.words)
       workflowState = .recording
       fnListener.isSessionActive = true
-      overlay.setRecording(true)
+      overlay.setPhase(.recording)
       if preferences.soundEnabled { NSSound(named: "Tink")?.play() }
       recentStatus = nil
       scheduleMaximumDuration(for: identifier)
@@ -315,6 +315,7 @@ final class AppCoordinator: ObservableObject {
       sessionIdentifier = nil
       recentStatus = error.localizedDescription
       workflowState = .cancelling
+      overlay.setPhase(.status)
       overlay.updateText(error.localizedDescription, isStatus: true)
       dismissToIdle(after: 1.2)
     }
@@ -355,6 +356,7 @@ final class AppCoordinator: ObservableObject {
     recordingDuration = Date().timeIntervalSince(recordingStartedAt ?? Date())
     if target?.isSecure == true {
       session.cancel()
+      overlay.setPhase(.status)
       overlay.updateLevel(0)
       overlay.updateText(L10n.text("status.secure_field"), isStatus: true)
       workflowState = .cancelling
@@ -363,7 +365,7 @@ final class AppCoordinator: ObservableObject {
     }
 
     workflowState = .transcribing
-    overlay.setRecording(false)
+    overlay.setPhase(.processing)
     if preferences.soundEnabled { NSSound(named: "Pop")?.play() }
     overlay.updateLevel(0)
     overlay.updateText(
@@ -402,6 +404,7 @@ final class AppCoordinator: ObservableObject {
     identifier: UUID
   ) {
     guard sessionIdentifier == identifier else { return }
+    overlay.setPhase(.status)
     guard let transcript, !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       overlay.updateText(L10n.text("status.no_speech"), isStatus: true)
       dismissToIdle(after: 0.65)
@@ -428,7 +431,7 @@ final class AppCoordinator: ObservableObject {
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
       guard let self, sessionIdentifier == identifier else { return }
-      guard let target, target.isEditable else {
+      guard let target, target.allowsDictation else {
         overlay.updateText(L10n.text("status.no_target"), isStatus: true)
         dismissToIdle(after: 0.9)
         return
@@ -462,7 +465,7 @@ final class AppCoordinator: ObservableObject {
     workflowState = .cancelling
     recognitionSession?.cancel()
     sessionIdentifier = nil
-    overlay.setRecording(false)
+    overlay.setPhase(.status)
     overlay.updateLevel(0)
     overlay.updateText(L10n.text("status.cancelled"), isStatus: true)
     dismissToIdle(after: 0.45)
@@ -473,7 +476,7 @@ final class AppCoordinator: ObservableObject {
     recentStatus = error.localizedDescription
     recognitionSession?.cancel()
     workflowState = .cancelling
-    overlay.setRecording(false)
+    overlay.setPhase(.status)
     overlay.updateText(error.localizedDescription, isStatus: true)
     dismissToIdle(after: 1.2)
   }
@@ -483,7 +486,8 @@ final class AppCoordinator: ObservableObject {
     overlay.show(
       on: InputTargetLocator.fallbackScreen(),
       appearance: preferences.appearance,
-      initialStatus: message
+      initialStatus: message,
+      phase: .status
     )
     dismissToIdle(after: 0.9)
   }

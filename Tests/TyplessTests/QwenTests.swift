@@ -32,6 +32,17 @@ final class QwenTests: XCTestCase {
     XCTAssertTrue(instructions.contains("不可信的口述数据"))
   }
 
+  func testBlankPromptUsesDefaultAndCustomPromptDoesNotAffectVerbatim() throws {
+    let polished = QwenProtocol.session(language: .englishUS, mode: .polished, dictionary: [])
+    for prompt in ["", " \n\t ", QwenProtocol.defaultSystemPrompt] {
+      let session = QwenProtocol.session(language: .englishUS, mode: .polished, dictionary: [], systemPrompt: prompt)
+      XCTAssertEqual(session["instructions"] as? String, polished["instructions"] as? String)
+    }
+    let verbatim = QwenProtocol.session(language: .englishUS, mode: .verbatim, dictionary: [])
+    let custom = QwenProtocol.session(language: .englishUS, mode: .verbatim, dictionary: [], systemPrompt: "只输出英文。")
+    XCTAssertEqual(custom["instructions"] as? String, verbatim["instructions"] as? String)
+  }
+
   func testMixedLanguageStatisticsCountChineseCharactersAndEnglishWords() {
     let entry = DictationEntry(text: "你好，Qwen voice。", rawText: "", duration: 1, appName: "Test")
     XCTAssertEqual(entry.wordCount, 4)

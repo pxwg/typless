@@ -8,6 +8,7 @@ final class QwenSettingsModel: ObservableObject {
   @Published var region: QwenRegion { didSet { draftChanged() } }
   @Published var workspaceID: String { didSet { draftChanged() } }
   @Published var endpoint: String { didSet { draftChanged() } }
+  @Published var systemPrompt: String { didSet { draftChanged() } }
   @Published private(set) var hasSavedKey = false
   @Published private(set) var statusMessage = ""
   var onConfigurationChanged: (() -> Void)?
@@ -21,14 +22,21 @@ final class QwenSettingsModel: ObservableObject {
     region = preferences.qwenRegion
     workspaceID = preferences.qwenWorkspaceID
     endpoint = preferences.qwenEndpoint
+    let savedPrompt = QwenProtocol.normalizedSystemPrompt(preferences.qwenSystemPrompt)
+    systemPrompt = savedPrompt.isEmpty ? QwenProtocol.defaultSystemPrompt : savedPrompt
   }
 
   var hasUnsavedChanges: Bool {
     !apiKeyInput.isEmpty || region != preferences.qwenRegion
       || workspaceID != preferences.qwenWorkspaceID || endpoint != preferences.qwenEndpoint
+      || QwenProtocol.normalizedSystemPrompt(systemPrompt) != QwenProtocol.normalizedSystemPrompt(preferences.qwenSystemPrompt)
   }
 
   var canTestConnection: Bool { hasSavedKey && !hasUnsavedChanges }
+
+  func restoreDefaultSystemPrompt() {
+    systemPrompt = QwenProtocol.defaultSystemPrompt
+  }
 
   func refreshCredentialStatus() {
     do { hasSavedKey = try keyStore.contains() }
@@ -49,8 +57,10 @@ final class QwenSettingsModel: ObservableObject {
       preferences.qwenRegion = region
       preferences.qwenWorkspaceID = workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
       preferences.qwenEndpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+      preferences.qwenSystemPrompt = QwenProtocol.normalizedSystemPrompt(systemPrompt)
       workspaceID = preferences.qwenWorkspaceID
       endpoint = preferences.qwenEndpoint
+      systemPrompt = preferences.qwenSystemPrompt.isEmpty ? QwenProtocol.defaultSystemPrompt : preferences.qwenSystemPrompt
       hasSavedKey = true
       apiKeyInput = ""
       statusMessage = "已保存"
@@ -81,7 +91,8 @@ final class QwenSettingsModel: ObservableObject {
   func configuration() throws -> QwenConfiguration {
     try QwenConfiguration(
       apiKey: keyStore.load(), region: preferences.qwenRegion,
-      workspaceID: preferences.qwenWorkspaceID, endpoint: preferences.qwenEndpoint
+      workspaceID: preferences.qwenWorkspaceID, endpoint: preferences.qwenEndpoint,
+      systemPrompt: preferences.qwenSystemPrompt
     )
   }
 

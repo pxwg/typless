@@ -23,6 +23,30 @@ struct QwenSettingsSection: View {
         Text("仅在使用业务空间或自定义服务时填写。密钥和录音将发送到此地址；远程地址必须使用 wss://。")
           .font(.caption).foregroundStyle(.secondary)
       }
+      DisclosureGroup("System Prompt（智能整理）") {
+        VStack(alignment: .leading, spacing: 10) {
+          Text("自定义口述的整理方式，替换默认整理规则。保存后从下一次录音生效；忠实转写直接使用原始识别结果。")
+            .font(.caption).foregroundStyle(.secondary)
+          TextEditor(text: $model.systemPrompt)
+            .font(.system(.body, design: .monospaced))
+            .frame(height: 220)
+            .padding(6)
+            .background(.background, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+            .accessibilityLabel("智能整理 System Prompt")
+          HStack {
+            Button("恢复默认") { model.restoreDefaultSystemPrompt() }
+            Text("留空也会使用默认规则；修改后请点击保存。")
+              .font(.caption).foregroundStyle(.secondary)
+          }
+          DisclosureGroup("始终保留的转写约束") {
+            Text(QwenProtocol.dictationBoundary)
+              .font(.caption).foregroundStyle(.secondary)
+              .textSelection(.enabled)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+      }
       HStack {
         Button("保存") { model.save() }
           .buttonStyle(.borderedProminent)

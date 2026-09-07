@@ -36,13 +36,16 @@ final class VoiceBarTests: XCTestCase {
       panel.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
       panel.contentView = host
 
-      for recording in [true, false, true] {
-        model.recording = recording
-        let text = recording
-          ? String(repeating: "这是一段很长的转录文字 mixed language transcript。", count: 10)
-          : "正在整理…"
-        model.transcript.update(text, isStatus: !recording, animated: false)
-        model.level = recording ? 0.8 : 0
+      for phase: VoiceBarModel.Phase in [.recording, .processing, .status, .recording] {
+        model.phase = phase
+        let text: String
+        switch phase {
+        case .recording: text = String(repeating: "这是一段很长的转录文字 mixed language transcript。", count: 10)
+        case .processing: text = "正在整理…"
+        case .status: text = "没有聚焦的可编辑字段"
+        }
+        model.transcript.update(text, isStatus: phase != .recording, animated: false)
+        model.level = phase == .recording ? 0.8 : 0
         model.startedAt = Date().addingTimeInterval(-3_665)
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         host.layoutSubtreeIfNeeded()
@@ -56,15 +59,17 @@ final class VoiceBarTests: XCTestCase {
         let buttons = descendants(of: NSButton.self, in: host).sorted {
           $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX
         }
-        XCTAssertEqual(buttons.count, recording ? 2 : 1)
-        try XCTUnwrap(buttons.first).performClick(nil)
-        XCTAssertGreaterThan(cancels, 0)
+        XCTAssertEqual(buttons.count, phase == .recording ? 2 : (phase == .processing ? 1 : 0))
+        if phase != .status {
+          try XCTUnwrap(buttons.first).performClick(nil)
+          XCTAssertGreaterThan(cancels, 0)
+        }
         let finish = buttons.dropFirst().first
-        if recording {
+        if phase == .recording {
           try XCTUnwrap(finish).performClick(nil)
           XCTAssertGreaterThan(finishes, 0)
         } else {
-          XCTAssertNil(finish, "Finishing must not be offered while processing")
+          XCTAssertNil(finish, "Finishing must not be offered during processing or status messages")
         }
 
         for button in buttons {
@@ -73,6 +78,10 @@ final class VoiceBarTests: XCTestCase {
           XCTAssertGreaterThanOrEqual(frame.height, 28)
           XCTAssertTrue(host.bounds.insetBy(dx: -1, dy: -1).contains(frame),
             "Button hit areas must remain inside the floating panel")
+        }
+        if phase == .status {
+          XCTAssertTrue(descendants(of: NSProgressIndicator.self, in: host).isEmpty,
+            "An error must not appear to be recording or processing")
         }
       }
       XCTAssertEqual(cancels, 3)

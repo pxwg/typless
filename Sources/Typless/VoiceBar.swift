@@ -2,9 +2,10 @@ import SwiftUI
 
 @MainActor
 final class VoiceBarModel: ObservableObject {
+  enum Phase { case recording, processing, status }
   let transcript = TranscriptPresentation()
   @Published var level = 0.0
-  @Published var recording = true
+  @Published var phase: Phase = .recording
   @Published var startedAt = Date()
 }
 
@@ -32,11 +33,13 @@ struct VoiceBar: View {
     VStack(spacing: 10) {
       TranscriptCapsule(presentation: model.transcript)
 
-      controls
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .modifier(VoiceCapsuleSurface())
-        .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: model.recording)
+      if model.phase != .status {
+        controls
+          .padding(.horizontal, 12)
+          .padding(.vertical, 8)
+          .modifier(VoiceCapsuleSurface())
+          .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: model.phase)
+      }
     }
   }
 
@@ -53,7 +56,7 @@ struct VoiceBar: View {
       .buttonStyle(.borderless)
       .help("取消 · Esc")
 
-      if model.recording {
+      if model.phase == .recording {
         VoiceWaveform(level: model.level)
         Divider().frame(height: 20)
         Text(model.startedAt, style: .timer)
